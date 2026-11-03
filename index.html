@@ -2636,6 +2636,10 @@ html,body{overflow-x:hidden;max-width:100%}
 .form-ok-icon svg{width:26px;height:26px}
 .form-ok strong{font-family:'Montserrat',sans-serif;font-weight:800;font-size:22px;text-transform:uppercase;color:var(--black)}
 .form-ok p{font-family:'Montserrat',sans-serif;font-size:15px;line-height:1.55;color:#3a3a3a;max-width:340px}
+
+.input-at{position:relative;display:block}
+.input-at::before{content:'@';position:absolute;left:14px;top:50%;transform:translateY(-50%);font-family:'Montserrat',sans-serif;font-weight:700;font-size:15px;color:var(--orange);pointer-events:none}
+.input-at .form-input{padding-left:32px}
 </style>
 </head>
 <body>
@@ -2665,7 +2669,7 @@ html,body{overflow-x:hidden;max-width:100%}
 <div class="form-row"><label class="form-label" for="h-nome">Nome</label><input class="form-input" id="h-nome" name="nome" type="text" placeholder="Seu nome" autocomplete="name" required></div>
 <div class="form-row"><label class="form-label" for="h-tel">WhatsApp</label><input class="form-input" id="h-tel" name="telefone" type="tel" placeholder="(47) 90000-0000" autocomplete="tel" required></div>
 <div class="form-row"><label class="form-label" for="h-empresa">Nome do delivery</label><input class="form-input" id="h-empresa" name="empresa" type="text" placeholder="Ex.: Pizzaria do Centro" required></div>
-<div class="form-row"><label class="form-label" for="h-insta">Instagram do delivery</label><input class="form-input" id="h-insta" name="instagram" type="text" placeholder="@seudelivery" autocomplete="off" autocapitalize="none" spellcheck="false" required></div>
+<div class="form-row"><label class="form-label" for="h-insta">Instagram do delivery</label><span class="input-at"><input class="form-input" id="h-insta" name="instagram" type="text" placeholder="seudelivery" autocomplete="off" autocapitalize="none" spellcheck="false" required></span></div>
 <div class="form-row"><label class="form-label" for="h-fat">Faturamento médio mensal do delivery</label><select class="form-select" id="h-fat" name="faturamento" required onchange="this.classList.toggle('has-value', !!this.value)"><option value="" disabled selected>Selecione...</option><option>Até R$ 20.000</option><option>R$ 20.000 até R$ 40.000</option><option>R$ 40.000 até R$ 70.000</option><option>R$ 70.000 até R$ 100.000</option><option>R$ 100.000 até R$ 200.000</option><option>R$ 200.000 até R$ 400.000</option><option>Acima de R$ 400 mil</option></select></div>
 <button class="form-submit" type="submit">Quero meu diagnóstico gratuito <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg></button>
 </form>
@@ -3034,37 +3038,53 @@ html,body{overflow-x:hidden;max-width:100%}
     const btn = form.querySelector('.form-submit');
     const err = form.querySelector('.form-error');
     if (err) err.remove();
+    if (btn.disabled) return;
     btn.disabled = true;
     const label = btn.innerHTML;
     btn.textContent = 'Enviando...';
-    fetch('https://formsubmit.co/ajax/kurtzassessoria@gmail.com', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({
-        Nome: d.get('nome'),
-        WhatsApp: d.get('telefone'),
-        Delivery: d.get('empresa'),
-        Instagram: (function(v){ v = (v || '').trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/\/.*$/, ''); return v ? (v.charAt(0) === '@' ? v : '@' + v) : ''; })(d.get('instagram')),
-        'Faturamento médio mensal': d.get('faturamento'),
-        _subject: 'Novo lead LP Kurtz — ' + (d.get('empresa') || ''),
-        _template: 'table',
-        _captcha: 'false'
-      })
-    })
-    .then(r => r.json().then(j => ({ ok: r.ok, j })))
-    .then(({ ok, j }) => {
-      if (!ok || String(j.success) === 'false') throw new Error(j.message || 'Falha no envio');
+    const insta = (d.get('instagram') || '').trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/[\/?#].*$/, '').replace(/^@+/, '');
+    const body = new FormData();
+    body.append('Nome', d.get('nome') || '');
+    body.append('WhatsApp', d.get('telefone') || '');
+    body.append('Delivery', d.get('empresa') || '');
+    body.append('Instagram', insta ? '@' + insta : '');
+    body.append('Faturamento médio mensal', d.get('faturamento') || '');
+    body.append('_subject', 'Novo lead LP Kurtz — ' + (d.get('empresa') || ''));
+    body.append('_template', 'table');
+    body.append('_captcha', 'false');
+    let done = false;
+    function success(){
+      if (done) return; done = true;
       form.innerHTML = '<div class="form-ok"><span class="form-ok-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12 10 17 19 7"/></svg></span><strong>Recebido!</strong><p>Obrigado, ' + (d.get('nome') || '').split(' ')[0] + '. Em breve o Jeferson entra em contato pelo seu WhatsApp para agendar o diagnóstico.</p></div>';
-    })
-    .catch(() => {
+    }
+    function fail(){
+      if (done) return; done = true;
       btn.disabled = false;
       btn.innerHTML = label;
       const p = document.createElement('p');
       p.className = 'form-error';
       p.textContent = 'Não foi possível enviar agora. Tente novamente em instantes.';
       btn.insertAdjacentElement('afterend', p);
-    });
+    }
+    // Request keeps running in background (keepalive); UI confirms after 2.5s at most.
+    const slow = setTimeout(success, 2500);
+    fetch('https://formsubmit.co/ajax/kurtzassessoria@gmail.com', {
+      method: 'POST',
+      headers: { 'Accept': 'application/json' },
+      body: body,
+      keepalive: true
+    })
+    .then(r => r.json().catch(() => ({})).then(j => ({ ok: r.ok, j })))
+    .then(({ ok, j }) => { clearTimeout(slow); (!ok || String(j.success) === 'false') ? fail() : success(); })
+    .catch(() => { clearTimeout(slow); fail(); });
   }
+
+  document.querySelectorAll('.lead-form input[name="instagram"]').forEach(el => {
+    el.addEventListener('input', e => {
+      const v = e.target.value.replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@+/, '').replace(/\s/g, '');
+      if (v !== e.target.value) e.target.value = v;
+    });
+  });
 
   document.querySelectorAll('.lead-form input[type="tel"]').forEach(el => {
     el.addEventListener('input', e => {
