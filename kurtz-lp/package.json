@@ -1,7 +1,0 @@
-{
-  "name": "kurtz-lp",
-  "private": true,
-  "dependencies": {
-    "nodemailer": "^6.9.14"
-  }
-}
