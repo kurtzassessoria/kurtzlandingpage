@@ -2641,6 +2641,19 @@ html,body{overflow-x:hidden;max-width:100%}
 .input-at::before{content:'@';position:absolute;left:14px;top:50%;transform:translateY(-50%);font-family:'Montserrat',sans-serif;font-weight:700;font-size:15px;color:var(--orange);pointer-events:none}
 .input-at .form-input{padding-left:32px}
 </style>
+
+<!-- Meta Pixel — cole seu ID entre as aspas abaixo -->
+<script>
+  window.KURTZ_PIXEL_ID = '';
+  (function(){
+    var id = window.KURTZ_PIXEL_ID;
+    if (!id) return;
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', id);
+    fbq('track', 'PageView');
+  })();
+  window.kurtzTrack = function(ev, data, opts){ try { if (window.fbq && window.KURTZ_PIXEL_ID) fbq('track', ev, data || {}, opts || {}); } catch(e){} };
+</script>
 </head>
 <body>
 
@@ -3036,47 +3049,69 @@ html,body{overflow-x:hidden;max-width:100%}
   function enviarFormulario(form) {
     const d = new FormData(form);
     const btn = form.querySelector('.form-submit');
-    const err = form.querySelector('.form-error');
-    if (err) err.remove();
+    const old = form.querySelector('.form-error');
+    if (old) old.remove();
     if (btn.disabled) return;
     btn.disabled = true;
     const label = btn.innerHTML;
     btn.textContent = 'Enviando...';
     const insta = (d.get('instagram') || '').trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/[\/?#].*$/, '').replace(/^@+/, '');
-    const body = new FormData();
-    body.append('Nome', d.get('nome') || '');
-    body.append('WhatsApp', d.get('telefone') || '');
-    body.append('Delivery', d.get('empresa') || '');
-    body.append('Instagram', insta ? '@' + insta : '');
-    body.append('Faturamento médio mensal', d.get('faturamento') || '');
-    body.append('_subject', 'Novo lead LP Kurtz — ' + (d.get('empresa') || ''));
-    body.append('_template', 'table');
-    body.append('_captcha', 'false');
+    const lead = {
+      Nome: d.get('nome') || '',
+      WhatsApp: d.get('telefone') || '',
+      Delivery: d.get('empresa') || '',
+      Instagram: insta ? '@' + insta : '',
+      'Faturamento médio mensal': d.get('faturamento') || ''
+    };
+    const eventId = 'lead-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    const firstName = lead.Nome.split(' ')[0];
     let done = false;
+
+    function okScreen(viaWhats){
+      form.innerHTML = '<div class="form-ok"><span class="form-ok-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12 10 17 19 7"/></svg></span><strong>Recebido!</strong><p>' +
+        (viaWhats
+          ? 'Obrigado, ' + firstName + '. Abrimos o WhatsApp com seus dados — é só tocar em enviar para confirmar.'
+          : 'Obrigado, ' + firstName + '. Em breve o Jeferson entra em contato pelo seu WhatsApp para agendar o diagnóstico.') +
+        '</p></div>';
+    }
+    function whatsFallback(){
+      const msg = 'Olá Jeferson! Vim pelo site e quero o diagnóstico gratuito.\n\n' +
+        Object.keys(lead).map(k => '*' + k + ':* ' + lead[k]).join('\n');
+      return 'https://wa.me/5547984401012?text=' + encodeURIComponent(msg);
+    }
     function success(){
-      if (done) return; done = true;
-      form.innerHTML = '<div class="form-ok"><span class="form-ok-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12 10 17 19 7"/></svg></span><strong>Recebido!</strong><p>Obrigado, ' + (d.get('nome') || '').split(' ')[0] + '. Em breve o Jeferson entra em contato pelo seu WhatsApp para agendar o diagnóstico.</p></div>';
+      if (done) return; done = true; clearTimeout(timer);
+      kurtzTrack('Lead', { content_name: 'Diagnóstico gratuito', faturamento: lead['Faturamento médio mensal'] }, { eventID: eventId });
+      okScreen(false);
     }
     function fail(){
-      if (done) return; done = true;
-      btn.disabled = false;
-      btn.innerHTML = label;
-      const p = document.createElement('p');
-      p.className = 'form-error';
-      p.textContent = 'Não foi possível enviar agora. Tente novamente em instantes.';
-      btn.insertAdjacentElement('afterend', p);
+      if (done) return; done = true; clearTimeout(timer);
+      kurtzTrack('Lead', { content_name: 'Diagnóstico gratuito', canal: 'whatsapp_fallback' }, { eventID: eventId });
+      const url = whatsFallback();
+      const w = window.open(url, '_blank');
+      okScreen(true);
+      if (!w) {
+        const p = document.createElement('p');
+        p.className = 'form-error';
+        p.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener" style="color:inherit;font-weight:700;text-decoration:underline">Toque aqui para enviar seus dados pelo WhatsApp</a>';
+        form.appendChild(p);
+      }
     }
-    // Request keeps running in background (keepalive); UI confirms after 2.5s at most.
-    const slow = setTimeout(success, 2500);
+    const timer = setTimeout(fail, 10000);
+
+    const body = new FormData();
+    Object.keys(lead).forEach(k => body.append(k, lead[k]));
+    body.append('_subject', 'Novo lead LP Kurtz — ' + lead.Delivery);
+    body.append('_template', 'table');
+    body.append('_captcha', 'false');
     fetch('https://formsubmit.co/ajax/kurtzassessoria@gmail.com', {
       method: 'POST',
       headers: { 'Accept': 'application/json' },
-      body: body,
-      keepalive: true
+      body: body
     })
     .then(r => r.json().catch(() => ({})).then(j => ({ ok: r.ok, j })))
-    .then(({ ok, j }) => { clearTimeout(slow); (!ok || String(j.success) === 'false') ? fail() : success(); })
-    .catch(() => { clearTimeout(slow); fail(); });
+    .then(({ ok, j }) => { (ok && String(j.success) === 'true') ? success() : fail(); })
+    .catch(fail);
   }
 
   document.querySelectorAll('.lead-form input[name="instagram"]').forEach(el => {
