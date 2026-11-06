@@ -2644,7 +2644,7 @@ html,body{overflow-x:hidden;max-width:100%}
 
 <!-- Meta Pixel — cole seu ID entre as aspas abaixo -->
 <script>
-  window.KURTZ_PIXEL_ID = '';
+  window.KURTZ_PIXEL_ID = '1522959416682572';
   (function(){
     var id = window.KURTZ_PIXEL_ID;
     if (!id) return;
@@ -2653,6 +2653,28 @@ html,body{overflow-x:hidden;max-width:100%}
     fbq('track', 'PageView');
   })();
   window.kurtzTrack = function(ev, data, opts){ try { if (window.fbq && window.KURTZ_PIXEL_ID) fbq('track', ev, data || {}, opts || {}); } catch(e){} };
+  // Captura UTMs / fbclid da URL do anúncio (válido por 30 dias)
+  (function(){
+    try {
+      var p = new URLSearchParams(location.search), got = {};
+      ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid'].forEach(function(k){ var v = p.get(k); if (v) got[k] = v; });
+      if (Object.keys(got).length) { got.landing = location.pathname + location.search; got.ts = Date.now(); localStorage.setItem('kurtz_attr', JSON.stringify(got)); }
+    } catch(e){}
+  })();
+  window.kurtzAttr = function(){
+    try { var a = JSON.parse(localStorage.getItem('kurtz_attr') || '{}'); if (a.ts && Date.now() - a.ts > 30 * 864e5) return {}; return a; } catch(e){ return {}; }
+  };
+  window.kurtzCookie = function(n){ var m = document.cookie.match('(?:^|; )' + n + '=([^;]*)'); return m ? decodeURIComponent(m[1]) : ''; };
+  // Correspondência avançada: envia telefone e nome (o Pixel criptografa antes de enviar)
+  window.kurtzMatch = function(lead){
+    try {
+      if (!window.fbq || !window.KURTZ_PIXEL_ID) return;
+      var ph = (lead.WhatsApp || '').replace(/\D/g, ''); if (ph && ph.indexOf('55') !== 0) ph = '55' + ph;
+      var parts = (lead.Nome || '').trim().toLowerCase().split(/\s+/), ud = { country: 'br' };
+      if (ph) ud.ph = ph; if (parts[0]) ud.fn = parts[0]; if (parts.length > 1) ud.ln = parts.slice(1).join(' ');
+      fbq('init', window.KURTZ_PIXEL_ID, ud);
+    } catch(e){}
+  };
 </script>
 </head>
 <body>
@@ -3081,11 +3103,13 @@ html,body{overflow-x:hidden;max-width:100%}
     }
     function success(){
       if (done) return; done = true; clearTimeout(timer);
+      kurtzMatch(lead);
       kurtzTrack('Lead', { content_name: 'Diagnóstico gratuito', faturamento: lead['Faturamento médio mensal'] }, { eventID: eventId });
       okScreen(false);
     }
     function fail(){
       if (done) return; done = true; clearTimeout(timer);
+      kurtzMatch(lead);
       kurtzTrack('Lead', { content_name: 'Diagnóstico gratuito', canal: 'whatsapp_fallback' }, { eventID: eventId });
       const url = whatsFallback();
       const w = window.open(url, '_blank');
@@ -3102,7 +3126,11 @@ html,body{overflow-x:hidden;max-width:100%}
     fetch('/api/lead', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ nome: lead.Nome, telefone: lead.WhatsApp, empresa: lead.Delivery, instagram: lead.Instagram, faturamento: lead['Faturamento médio mensal'], website: d.get('website') || '' })
+      body: JSON.stringify(Object.assign({}, kurtzAttr(), (function(){
+        var a = kurtzAttr(), fbc = kurtzCookie('_fbc');
+        if (!fbc && a.fbclid) fbc = 'fb.1.' + (a.ts || Date.now()) + '.' + a.fbclid;
+        return { fbp: kurtzCookie('_fbp'), fbc: fbc, page_url: location.href };
+      })(), { event_id: eventId, nome: lead.Nome, telefone: lead.WhatsApp, empresa: lead.Delivery, instagram: lead.Instagram, faturamento: lead['Faturamento médio mensal'], website: d.get('website') || '' }))
     })
     .then(r => r.json().catch(() => ({})).then(j => ({ ok: r.ok, j })))
     .then(({ ok, j }) => { (ok && j.success === true) ? success() : fail(); })
